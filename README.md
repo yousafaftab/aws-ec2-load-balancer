@@ -1,97 +1,146 @@
-# AWS Infrastructure with Terraform
+# EC2 Instance with Elastic Load Balancer on AWS
 
-This Terraform project provisions AWS infrastructure, including an EC2 instance and an Elastic Load Balancer (ELB). The configuration utilizes AWS data sources and variables to allow customization and flexibility.
+A clean, fully parameterised Terraform project that provisions an **Ubuntu EC2 instance** fronted by a **Classic Elastic Load Balancer (ELB)** with health checks, cross-zone load balancing, and connection draining configured. Built as a minimal, production-friendly reference implementation for load-balanced compute on AWS.
 
-## Table of Contents
+---
 
-1. [Overview](#overview)
-2. [Files Overview](#files-overview)
-3. [Prerequisites](#prerequisites)
-4. [Setup](#setup)
-5. [Deployment](#deployment)
-6. [Outputs](#outputs)
-7. [Cleanup](#cleanup)
-8. [Code Review](#code-review)
+## Architecture
 
-## Overview
+```
+  Internet
+      │
+      ▼
+  Elastic Load Balancer
+  ├── Port 80 (HTTP) listener
+  ├── Health check: HTTP:8000/
+  ├── Cross-zone load balancing: enabled
+  ├── Connection draining: enabled (400s timeout)
+  └── Deployed across 3 Availability Zones
+           │
+           ▼
+  EC2 Instance
+  ├── OS: Ubuntu 22.04 LTS (latest AMI, auto-resolved)
+  ├── Type: t2.micro
+  ├── Application port: 8000
+  └── Deployed in Default VPC
+```
 
-This Terraform configuration sets up a basic infrastructure on AWS, consisting of:
-- An EC2 instance running on Amazon Linux AMI.
-- An Elastic Load Balancer (ELB) configured to distribute traffic across instances.
-- Uses default VPC, subnets, and security groups for simplicity.
+---
 
-## Files Overview
+## Features
 
-1. **data.tf**: 
-   - Fetches AWS data sources like default VPC, subnets, security group, and AMI.
-   - Ensures that resources are deployed within the existing AWS infrastructure.
+- **Auto AMI resolution** — Always deploys the latest Ubuntu 22.04 LTS (Jammy Jellyfish) from Canonical; no manual AMI ID management
+- **Elastic Load Balancer** — HTTP listener with configurable health checks, cross-zone distribution, and connection draining for zero-downtime deployments
+- **Default VPC** — Uses the existing default VPC and subnets, minimising prerequisites and setup time
+- **Fully parameterised** — Every aspect of the deployment (instance type, ports, AZs, thresholds, timeouts) is configurable via input variables
+- **Clean outputs** — Exposes the EC2 public IP and ELB DNS name immediately after `terraform apply`
 
-2. **ec2.tf**: 
-   - Defines an EC2 instance using the fetched AMI and subnet details.
-   - Allows customization of the instance type and name via variables.
+---
 
-3. **elb.tf**: 
-   - Creates an Elastic Load Balancer (ELB) in the specified availability zones.
-   - Configures listeners, health checks, and load balancing settings.
-   - Associates the ELB with the EC2 instance.
+## Tech Stack
 
-4. **output.tf**: 
-   - Specifies output values for the public IP of the EC2 instance and the DNS name of the ELB.
+| Layer | Technology |
+|---|---|
+| Infrastructure as Code | Terraform >= 1.9.0 |
+| Compute | Amazon EC2 (Ubuntu 22.04 LTS) |
+| Load Balancing | AWS Elastic Load Balancer (Classic) |
+| Networking | Default VPC + subnets |
+| Cloud Provider | AWS (`hashicorp/aws` ~> 5.65) |
 
-5. **provider.tf**: 
-   - Configures the AWS provider with the specified region and AWS profile.
+---
 
-6. **variables.tf**: 
-   - Defines input variables for customizing resources like EC2 instance type, ELB settings, and other configurations.
+## Project Structure
 
-7. **versions.tf**: 
-   - Specifies the required versions of Terraform and the AWS provider.
+```
+simple-ec2-instance/
+├── ec2.tf              # EC2 instance resource
+├── elb.tf              # Elastic Load Balancer, listener, and health check
+├── data.tf             # Default VPC, subnets, security group, and AMI data sources
+├── variables.tf        # All input variable declarations
+├── terraform.tfvars    # Default variable values
+├── output.tf           # EC2 public IP and ELB DNS name
+├── providers.tf        # AWS provider configuration
+└── versions.tf         # Terraform and provider version constraints
+```
 
-8. **terraform.tfvars**: 
-   - Contains default values for input variables to simplify deployment.
+---
+
+## Configuration
+
+All variables are declared in `variables.tf` with defaults set in `terraform.tfvars`.
+
+| Variable | Default | Description |
+|---|---|---|
+| `aws_region` | `ap-southeast-1` | AWS deployment region |
+| `ec2_name` | `yousaf-ec2` | Name tag for the EC2 instance |
+| `instance_type` | `t2.micro` | EC2 instance type |
+| `elb_name` | `yousaf-elb` | Name of the Elastic Load Balancer |
+| `availability_zones` | `["ap-southeast-1a/b/c"]` | AZs the ELB spans |
+| `instance_port` | `8000` | Port the application listens on |
+| `instance_protocol` | `http` | Protocol for backend traffic |
+| `lb_port` | `80` | Port the ELB listens on |
+| `lb_protocol` | `http` | Protocol for client-facing traffic |
+| `healthy_threshold` | `2` | Consecutive successful checks to mark instance healthy |
+| `unhealthy_threshold` | `2` | Consecutive failures to mark instance unhealthy |
+| `health_check_timeout` | `3` | Health check request timeout (seconds) |
+| `interval` | `30` | Health check polling interval (seconds) |
+| `cross_zone_load_balancing` | `true` | Distribute traffic evenly across AZs |
+| `idle_timeout` | `400` | Idle connection timeout (seconds) |
+| `connection_draining` | `true` | Allow in-flight requests to complete before deregistration |
+| `connection_draining_timeout` | `400` | Maximum drain time (seconds) |
+
+---
 
 ## Prerequisites
 
-- [Terraform](https://www.terraform.io/downloads.html) >= 1.9.0
-- [AWS CLI](https://aws.amazon.com/cli/) configured with appropriate permissions.
-- AWS account with access to create VPCs, EC2 instances, and ELBs.
+- [Terraform](https://developer.hashicorp.com/terraform/downloads) >= 1.9.0
+- [AWS CLI](https://aws.amazon.com/cli/) configured with appropriate credentials
+- AWS IAM permissions to create EC2 instances and Elastic Load Balancers
 
-## Setup
-
-Before deploying the resources, ensure you have the following configured:
-
-1. **AWS Credentials**: Configure your AWS credentials using the AWS CLI or environment variables.
-
-2. **Terraform Installation**: Install Terraform using the instructions on the [official Terraform website](https://www.terraform.io/downloads.html).
+---
 
 ## Deployment
 
-To deploy the resources defined in this Terraform project, follow these steps:
+```bash
+# Clone the repository
+git clone <repo-url>
+cd simple-ec2-instance
 
-1. **Initialize the Terraform workspace:**
+# Initialize Terraform workspace and download providers
+terraform init
 
-   ```bash
-   terraform init
+# Validate configuration syntax
+terraform validate
 
-2. **Validate the Terraform code:**
-    ```bash
-    terraform validate
+# Preview resources to be created
+terraform plan
 
-3. **Plan the deployment to see the resources that will be created:**
-    
-    ```bash
-    terraform plan
+# Deploy the infrastructure
+terraform apply
+```
 
-4. **Apply the configuration to deploy the resources:**    
+---
 
-    ```bash
-    terraform apply
+## Outputs
+
+After `terraform apply` completes successfully:
+
+| Output | Description |
+|---|---|
+| `public_ip` | Public IP address of the EC2 instance |
+| `elb_dns` | DNS name of the Elastic Load Balancer |
+
+Access the application via the ELB DNS name:
+```
+http://<elb_dns>
+```
+
+---
 
 ## Cleanup
 
-1. **Destroy the infrastructure:**    
-    
-    ```bash
-    terraform destroy
+```bash
+terraform destroy
+```
 
-Confirm the destruction by typing yes when prompted. This will remove all the resources created by the Terraform configuration.
+> Confirm with `yes` when prompted. This permanently removes the EC2 instance and Elastic Load Balancer.
